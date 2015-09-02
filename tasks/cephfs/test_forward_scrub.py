@@ -12,6 +12,7 @@ import json
 import logging
 from collections import namedtuple
 from textwrap import dedent
+import errno
 
 from teuthology.orchestra.run import CommandFailedError
 from tasks.cephfs.cephfs_test_case import CephFSTestCase
@@ -43,6 +44,19 @@ class TestForwardScrub(CephFSTestCase):
             inos[path] = self.mount_a.path_to_ino(path)
 
         return inos
+
+    def _stat_all(self, fields=None):
+        stats = {}
+        if fields is None:
+            fields = ['st_ino']
+
+        p = self.mount_a.run_shell(["find", "./"])
+        paths = p.stdout.getvalue().strip().split()
+        for path in paths:
+            s = self.mount_a.stat(path)
+            stats[path] = dict([(k, v) for (k, v) in s.items() if k in fields])
+
+        return stats
 
     def test_apply_tag(self):
         self.mount_a.run_shell(["mkdir", "parentdir"])
@@ -194,3 +208,66 @@ class TestForwardScrub(CephFSTestCase):
         self.fs.wait_for_daemons()
         self.mount_a.mount()
         self._validate_linkage(inos)
+
+    def test_io_error(self):
+        """
+        That when an error has been found by scrub, attempts to read within
+        that subtree result in an -EIO.
+        """
+
+        preserved_stats = ["st_ino", "st_nlink", "st_size"]
+
+        # Create initial metadata structure
+        self.mount_a.run_shell(["mkdir", "parent"])
+        self.mount_a.run_shell(["mkdir", "parent/stillhere"])
+        self.mount_a.run_shell(["touch", "parent/stillhere/file_a"])
+        self.mount_a.run_shell(["mkdir", "parent/corrupted"])
+        self.mount_a.run_shell(["mkdir", "parent/corrupted/dir_c"])
+        self.mount_a.run_shell(["touch", "parent/corrupted/file_b"])
+        stats = self._stat_all(preserved_stats)
+
+        self.mount_a.umount_wait()
+        self.fs.mds_asok(["flush", "journal"])
+        self.fs.mds_stop()
+        self.fs.journal_tool(["journal", "reset"], rank=0)
+
+        # Corrupt a dentry
+        frag_obj_id = "{0:x}.00000000".format(stats["./parent"]['st_ino'])
+        self.fs.rados(["setomapval", frag_obj_id, "corrupted_head", "JUNKDATA"])
+
+        # Start the MDS and do a scrub
+        self.fs.mds_restart()
+        self.fs.wait_for_daemons()
+        tag = "mytag123"
+        self.fs.mds_asok(["tag", "path", "/parent", tag])
+
+        # The ScrubStack should have informed DamageTable that the dentry is unreadable
+        # such that attempting to read it would result in an EIO from the client
+        self.mount_a.mount()
+
+        try:
+            self.mount_a.stat("parent/corrupted")
+        except CommandFailedError as e:
+            self.assertEqual(e.exitstatus, errno.EIO)
+        else:
+            raise AssertionError("Stat on corrupted dentry should not succeed!")
+
+        self.mount_a.umount_wait()
+
+        self.fs.mds_stop()
+
+        # We should be able to repair this, and once we've repaired it the
+        # directory should be accessible again
+        self.fs.table_tool(["0", "reset", "session"])
+        self.fs.table_tool(["0", "reset", "snap"])
+        self.fs.table_tool(["0", "reset", "inode"])
+        self.fs.journal_tool(["journal", "reset", "--force"])
+        self.fs.data_scan(["scan_frags", "--force-corrupt"])
+
+        # Now the dentry we corrupted should be accessible once again
+        self.fs.mds_restart()
+        self.fs.wait_for_daemons()
+        self.mount_a.mount()
+
+        new_stats = self._stat_all(preserved_stats)
+        self.assertDictEqual(stats, new_stats)
