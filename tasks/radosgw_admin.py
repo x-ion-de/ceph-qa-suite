@@ -895,7 +895,7 @@ def task(ctx, config):
     time.sleep(15)
 
     (err, out) = rgwadmin(ctx, client, ['gc', 'list'])
-
+    print out
     assert len(out) > 0
 
     # TESTCASE 'gc-process', 'gc', 'process', 'manually collect garbage'
