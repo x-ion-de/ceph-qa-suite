@@ -235,6 +235,7 @@ class LocalDaemon(object):
         self.daemon_type = daemon_type
         self.daemon_id = daemon_id
         self.controller = LocalRemote()
+        self.proc = None
 
     @property
     def remote(self):
@@ -281,7 +282,7 @@ class LocalDaemon(object):
         if self._get_pid() is not None:
             self.stop()
 
-        self.controller.run([os.path.join(BIN_PREFIX, "./ceph-{0}".format(self.daemon_type)), "-i", self.daemon_id])
+        self.proc = self.controller.run([os.path.join(BIN_PREFIX, "./ceph-{0}".format(self.daemon_type)), "-i", self.daemon_id])
 
 
 def safe_kill(pid):
@@ -356,6 +357,7 @@ class MountDaemon(object):
 class LocalFuseMount(FuseMount):
     def __init__(self, test_dir, client_id):
         super(LocalFuseMount, self).__init__(None, test_dir, client_id, LocalRemote())
+        self._proc = None
 
     def run_shell(self, args, wait=True):
         # FIXME maybe should add a pwd arg to teuthology.orchestra so that
