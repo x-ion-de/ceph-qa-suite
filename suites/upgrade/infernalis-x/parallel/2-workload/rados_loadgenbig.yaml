@@ -1,0 +1,11 @@
+meta:
+- desc: |
+   add test details here
+workload:
+  sequential:
+    - workunit:
+        branch: infernalis
+        clients:
+          client.0:
+            - rados/load-gen-big.sh
+    - print: "**** done rados/load-gen-big.sh 2-workload"
