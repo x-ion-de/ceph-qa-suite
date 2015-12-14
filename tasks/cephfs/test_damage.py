@@ -1,5 +1,4 @@
-
-
+import json
 import logging
 import errno
 import re
@@ -14,7 +13,12 @@ CRASHED = "server crashed"
 NO_DAMAGE = "no damage"
 FAILED_CLIENT = "client failed"
 FAILED_SERVER = "server failed"
+
+# An EIO in response to a stat from the client
 EIO_ON_LS = "eio"
+
+# An EIO, but nothing in damage table (not ever what we expect)
+EIO_NO_DAMAGE = "eio without damage entry"
 
 
 log = logging.getLogger(__name__)
@@ -275,7 +279,10 @@ class TestDamage(CephFSTestCase):
             # MDS is up, should go damaged on ls or client mount
             self.mount_a.mount()
             self.mount_a.wait_until_mounted()
-            proc = self.mount_a.run_shell(["ls", "-R", mutation.ls_path], wait=False)
+            if mutation.ls_path == ".":
+                proc = self.mount_a.run_shell(["ls", "-R", mutation.ls_path], wait=False)
+            else:
+                proc = self.mount_a.stat(mutation.ls_path, wait=False)
 
             if mutation.expectation == DAMAGED_ON_LS:
                 try:
@@ -302,12 +309,20 @@ class TestDamage(CephFSTestCase):
                 except CommandFailedError as e:
                     # FIXME: "ls" returns ENOENT on input/output errors.  Need to replace ls with
                     # a little python snippet to get the correct error code back
-                    if e.exitstatus in [errno.EIO, errno.ENOENT]:
+                    #if e.exitstatus in [errno.EIO, errno.ENOENT]:
+                    if e.exitstatus == errno.EIO:
                         log.info("Result: EIO on client")
                         results[mutation] = EIO_ON_LS
                     else:
                         log.info("Result: unexpected error {0} on client".format(e))
                         results[mutation] = FAILED_CLIENT
+
+            if mutation.expectation == EIO_ON_LS:
+                # EIOs mean something handled by DamageTable: assert that it has
+                # been populated
+                damage = json.loads(self.fs.raw_cluster_cmd('mds', 'damage ls', '--format=json-pretty'))
+                if len(damage) == 0:
+                    results[mutation] = EIO_NO_DAMAGE
 
         failures = [(mutation, result) for (mutation, result) in results.items() if mutation.expectation != result]
         if failures:
