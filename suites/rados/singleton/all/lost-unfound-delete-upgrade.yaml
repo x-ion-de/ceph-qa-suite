@@ -1,0 +1,20 @@
+roles:
+- - mon.a
+  - mon.b
+  - mon.c
+  - osd.0
+  - osd.1
+- - osd.2
+tasks:
+- install:
+    branch: infernalis
+- install.upgrade:
+    mon.a:
+- print: "upgraded mon.a and friends"
+- ceph.restart:
+    daemons: [mon.a, mon.b, mon.c, osd.0, osd.1]
+- ceph:
+    log-whitelist:
+    - objects unfound and apparently lost
+- rep_lost_unfound_delete:
+    parallel_bench: false
