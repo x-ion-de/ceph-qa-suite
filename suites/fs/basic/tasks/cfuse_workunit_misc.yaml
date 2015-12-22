@@ -8,4 +8,4 @@ tasks:
 
 openstack:
 - machine:
-    disk: 20
+    disk: 40
