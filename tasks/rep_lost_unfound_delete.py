@@ -123,14 +123,14 @@ def task(ctx, config):
                           '{tdir}/archive/coverage',
                           'rados',
                           '--no-log-to-stderr',
-                          '--name', 'client.0',
+                          '--name', 'client.admin',
                           '-b', str(4<<10),
                           '-p' , POOL,
                           '-t', '128',
                           'bench', '240', 'write',
                       ]).format(tdir=testdir),
             ],
-            logger=log.getChild('radosbench.{id}'.format(id='client.0')),
+            logger=log.getChild('radosbench.{id}'.format(id='client.admin')),
             stdin=run.PIPE,
             wait=False
         ))
