@@ -7,4 +7,5 @@ tasks:
 
 openstack:
 - volumes:
+    count: 2
     size: 50

@@ -8,4 +8,5 @@ tasks:
 
 openstack:
 - machine:
+    count: 2
     disk: 40
