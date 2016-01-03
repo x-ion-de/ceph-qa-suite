@@ -52,7 +52,7 @@ try:
     from teuthology.exceptions import CommandFailedError
     from tasks.ceph_manager import CephManager
     from tasks.cephfs.fuse_mount import FuseMount
-    from tasks.cephfs.filesystem import Filesystem
+    from tasks.cephfs.filesystem import Filesystem, MDSCluster
     from teuthology.contextutil import MaxWhileTries
     from teuthology.task import interactive
 except ImportError:
@@ -557,12 +557,10 @@ class LocalCephManager(CephManager):
         return j
 
 
-class LocalFilesystem(Filesystem):
+class LocalMDSCluster(MDSCluster):
     def __init__(self, ctx):
         # Deliberately skip calling parent constructor
         self._ctx = ctx
-
-        self.admin_remote = LocalRemote()
 
         # Hack: cheeky inspection of ceph.conf to see what MDSs exist
         self.mds_ids = set()
@@ -575,27 +573,10 @@ class LocalFilesystem(Filesystem):
             raise RuntimeError("No MDSs found in ceph.conf!")
 
         self.mds_ids = list(self.mds_ids)
-
-        log.info("Discovered MDS IDs: {0}".format(self.mds_ids))
-
         self.mon_manager = LocalCephManager()
-
         self.mds_daemons = dict([(id_, LocalDaemon("mds", id_)) for id_ in self.mds_ids])
 
-        self.client_remote = LocalRemote()
-
         self._conf = defaultdict(dict)
-
-    @property
-    def _prefix(self):
-        return BIN_PREFIX
-
-    def set_clients_block(self, blocked, mds_id=None):
-        raise NotImplementedError()
-
-    def get_pgs_per_fs_pool(self):
-        # FIXME: assuming there are 3 OSDs
-        return 3 * int(self.get_config('mon_pg_warn_min_per_osd'))
 
     def get_config(self, key, service_type=None):
         if service_type is None:
@@ -659,6 +640,59 @@ class LocalFilesystem(Filesystem):
     def clear_firewall(self):
         # FIXME: unimplemented
         pass
+
+    def get_filesystem(self, name):
+        return LocalFilesystem(self._ctx, name)
+
+
+class LocalFilesystem(Filesystem, LocalMDSCluster):
+    @property
+    def admin_remote(self):
+        return LocalRemote()
+
+    def __init__(self, ctx, name=None):
+        # Deliberately skip calling parent constructor
+        self._ctx = ctx
+
+        if name is None:
+            name = "cephfs"
+
+        self.name = name
+        self.metadata_pool_name = "{0}_metadata".format(name)
+        self.data_pool_name = "{0}_data".format(name)
+
+        # Hack: cheeky inspection of ceph.conf to see what MDSs exist
+        self.mds_ids = set()
+        for line in open("ceph.conf").readlines():
+            match = re.match("^\[mds\.(.+)\]$", line)
+            if match:
+                self.mds_ids.add(match.group(1))
+
+        if not self.mds_ids:
+            raise RuntimeError("No MDSs found in ceph.conf!")
+
+        self.mds_ids = list(self.mds_ids)
+
+        log.info("Discovered MDS IDs: {0}".format(self.mds_ids))
+
+        self.mon_manager = LocalCephManager()
+
+        self.mds_daemons = dict([(id_, LocalDaemon("mds", id_)) for id_ in self.mds_ids])
+
+        self.client_remote = LocalRemote()
+
+        self._conf = defaultdict(dict)
+
+    @property
+    def _prefix(self):
+        return BIN_PREFIX
+
+    def set_clients_block(self, blocked, mds_id=None):
+        raise NotImplementedError()
+
+    def get_pgs_per_fs_pool(self):
+        # FIXME: assuming there are 3 OSDs
+        return 3 * int(self.get_config('mon_pg_warn_min_per_osd'))
 
 
 class InteractiveFailureResult(unittest.TextTestResult):
@@ -758,6 +792,7 @@ def exec_test():
             if os.path.exists(mount_point):
                 os.rmdir(mount_point)
     filesystem = LocalFilesystem(ctx)
+    mds_cluster = LocalMDSCluster(ctx)
 
     from tasks.cephfs_test_runner import DecoratingLoader
 
@@ -781,7 +816,8 @@ def exec_test():
     decorating_loader = DecoratingLoader({
         "ctx": ctx,
         "mounts": mounts,
-        "fs": filesystem
+        "fs": filesystem,
+        "mds_cluster": mds_cluster
     })
 
     # For the benefit of polling tests like test_full -- in teuthology land we set this
