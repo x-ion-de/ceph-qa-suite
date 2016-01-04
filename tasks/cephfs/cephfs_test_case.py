@@ -168,7 +168,7 @@ class CephFSTestCase(unittest.TestCase):
             self.mount_b.teardown()
 
         for subsys, key in self.configs_set:
-            self.fs.clear_ceph_conf(subsys, key)
+            self.mds_cluster.clear_ceph_conf(subsys, key)
 
     def set_conf(self, subsys, key, value):
         self.configs_set.add((subsys, key))
