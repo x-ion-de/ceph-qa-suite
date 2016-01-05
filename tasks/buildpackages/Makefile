@@ -30,7 +30,7 @@ ${HOME}/.ssh_agent:
 	grep -q ssh_agent ~/.bashrc_teuthology || echo 'source ${HOME}/.ssh_agent' >> ~/.bashrc_teuthology
 
 flock-${PKG_REPO}:
-	openstack server create --image 'teuthology-ubuntu-14.04' --flavor ${HTTP_FLAVOR} --key-name teuthology --security-group teuthology --property ownedby=${MY_IP} --user-data ${PKG_REPO_USER_DATA} --nic net-id=xion-default --nic net-id=xion-default --wait ${PKG_REPO}
+	openstack server create --image 'teuthology-ubuntu-14.04' --flavor ${HTTP_FLAVOR} --key-name teuthology --security-group teuthology --property ownedby=${MY_IP} --user-data ${PKG_REPO_USER_DATA} --nic net-id=xion-default --wait ${PKG_REPO}
 	sleep 30
 	set -ex ; \
 	ip=$(call get_ip,${PKG_REPO}) ; \
